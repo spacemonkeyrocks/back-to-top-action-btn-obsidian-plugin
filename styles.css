@@ -1,0 +1,16 @@
+/* Back to Top Button Plugin Styles */
+
+.back-to-top-btn {
+    /* All styling is applied via JavaScript for dynamic theming support */
+    /* This file exists for potential future CSS-based styling */
+}
+
+/* Override any conflicting styles that might interfere with button positioning */
+.back-to-top-btn {
+    box-sizing: border-box !important;
+}
+
+/* Ensure button stays above other floating elements */
+.back-to-top-btn {
+    z-index: 1000 !important;
+}
