@@ -467,22 +467,27 @@ class BackToTopSettingTab extends PluginSettingTab {
 
             const debugInfo = this.plugin.buttonManager?.getDebugInfo();
             if (debugInfo) {
-                debugContent.innerHTML = `
-                    <strong>Plugin Status:</strong> ${debugInfo.isMobile ? 'Mobile' : 'Desktop'}<br>
-                    <strong>Last Updated:</strong> ${debugInfo.timestamp}<br>
-                    <strong>Button Size:</strong> ${debugInfo.settings?.buttonSize}<br>
-                    <strong>Button Position:</strong> ${debugInfo.settings?.rightPosition} from right, ${debugInfo.settings?.bottomPosition} from bottom<br>
-                    <strong>Button Colors:</strong> ${debugInfo.settings?.buttonColor} / ${debugInfo.settings?.textColor}<br>
-                    <strong>Scroll Threshold:</strong> ${debugInfo.settings?.scrollThreshold}px<br>
-                    ${
-                        debugInfo.scrollInfo
-                            ? `
-                    <strong>Scroll Element:</strong> ${debugInfo.scrollInfo.scrollElement}<br>
-                    <strong>Current Scroll:</strong> ${debugInfo.scrollInfo.scrollTop}px<br>
-                    <strong>Should Show:</strong> ${debugInfo.scrollInfo.shouldShow ? 'YES' : 'NO'}
+                const scrollInfoHtml = debugInfo.scrollInfo
+                    ? `
+                    • Scroll Element: ${debugInfo.scrollInfo.scrollElement}<br>
+                    • Current Scroll: ${debugInfo.scrollInfo.scrollTop}px<br>
+                    • Should Show: ${debugInfo.scrollInfo.shouldShow ? 'YES' : 'NO'}
                     `
-                            : '<strong>Scroll Info:</strong> Not available (scroll on a page to populate)'
-                    }
+                    : '• Scroll Info: Not yet available';
+
+                debugContent.innerHTML = `
+                    <strong>Plugin Status</strong><br>
+                    • Platform: ${debugInfo.isMobile ? 'Mobile' : 'Desktop'}<br>
+                    • Last Update: ${debugInfo.timestamp}<br><br>
+
+                    <strong>Button Appearance</strong><br>
+                    • Size: ${debugInfo.settings?.buttonSize}<br>
+                    • Position: ${debugInfo.settings?.rightPosition} from right, ${debugInfo.settings?.bottomPosition} from bottom<br>
+                    • Colors (BG/Text): ${debugInfo.settings?.buttonColor} / ${debugInfo.settings?.textColor}<br><br>
+
+                    <strong>Button Behavior</strong><br>
+                    • Scroll Threshold: ${debugInfo.settings?.scrollThreshold}px<br>
+                    ${scrollInfoHtml}
                 `;
             } else {
                 debugContent.innerHTML =
