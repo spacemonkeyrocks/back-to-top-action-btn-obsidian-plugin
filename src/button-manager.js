@@ -6,6 +6,54 @@ class ButtonManager {
         this.plugin = plugin;
         this.mobileUtils = new MobileUtils(plugin);
         this.debugInfo = {};
+        this.isScrollingUp = false; // Flag to prevent scroll listener interference
+    }
+
+    _getScrollableElement(activeView) {
+        if (!activeView) return null;
+        this.plugin.logger.logTrace(
+            '_getScrollableElement: Starting search for scrollable element.'
+        );
+
+        const contentEl = activeView.contentEl;
+        let scrollElement = null;
+
+        const previewView = contentEl.querySelector('.markdown-preview-view');
+        if (previewView && previewView.offsetParent !== null) {
+            if (previewView.scrollHeight > previewView.clientHeight) {
+                scrollElement = previewView;
+            }
+        }
+
+        if (!scrollElement) {
+            const sourceScroller = contentEl.querySelector('.cm-scroller');
+            if (sourceScroller) {
+                if (sourceScroller.scrollHeight > sourceScroller.clientHeight) {
+                    scrollElement = sourceScroller;
+                }
+            }
+        }
+
+        if (!scrollElement) {
+            const viewContent = contentEl.querySelector('.view-content');
+            if (viewContent) {
+                if (viewContent.scrollHeight > viewContent.clientHeight) {
+                    scrollElement = viewContent;
+                }
+            }
+        }
+
+        if (scrollElement) {
+            this.plugin.logger.logDebug(
+                `_getScrollableElement: Final element selected: ${scrollElement.className}`
+            );
+        } else {
+            this.plugin.logger.logWarn(
+                '_getScrollableElement: No scrollable element could be found.'
+            );
+        }
+
+        return scrollElement;
     }
 
     async updateButtonAppearance() {
@@ -15,22 +63,14 @@ class ButtonManager {
         const button = document.querySelector('.back-to-top-btn');
 
         if (!button) {
-            this.plugin.logger.logWarn(
-                'updateButtonAppearance called but no button found, running full creation.'
-            );
             this.addBackToTopButton();
             return;
         }
 
         try {
             const settings = await this.getEffectiveSettings();
-            this.plugin.logger.logDebug(
-                `Applying new dynamic styles: ${JSON.stringify(settings)}`
-            );
             this.applyDynamicStyles(button, settings);
-
-            const checkScroll = this.createScrollChecker(button, settings);
-            checkScroll();
+            this.createScrollChecker(button, settings)();
         } catch (error) {
             this.plugin.logger.logError(
                 `ERROR in updateButtonAppearance: ${error.stack || error}`
@@ -44,38 +84,24 @@ class ButtonManager {
         if (!activeView) {
             const existingButton = document.querySelector('.back-to-top-btn');
             if (existingButton) existingButton.remove();
-            this.plugin.logger.logDebug(
-                'Not in a markdown view, skipping addBackToTopButton'
-            );
             return;
         }
 
         this.plugin.logger.logDebug(
             'Starting addBackToTopButton (full creation)'
         );
-
-        this.debugInfo = {
-            isMobile: this.plugin.app.isMobile,
-            timestamp: new Date().toLocaleTimeString(),
-        };
-
         const existingButton = document.querySelector('.back-to-top-btn');
         if (existingButton) {
-            this.plugin.logger.logTrace('Removing existing button');
             existingButton.remove();
         }
 
         try {
             const settings = await this.getEffectiveSettings();
             this.debugInfo.settings = settings;
-
             const button = this.createButton();
             this.applyCoreStyles(button, settings);
             this.addEventListeners(button, settings);
-
             document.body.appendChild(button);
-            this.plugin.logger.logVerbose('Button added to document body');
-
             await this.setupMobileVisibilityObserver(button, settings);
         } catch (error) {
             this.plugin.logger.logError(
@@ -87,9 +113,7 @@ class ButtonManager {
     createButton() {
         const button = document.createElement('button');
         button.className = 'back-to-top-btn';
-        button.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path fill-rule="evenodd" clip-rule="evenodd" d="M12 3L6 9L7.5 10.5L11 7V21H13V7L16.5 10.5L18 9L12 3Z" fill="currentColor"/>
-</svg>`;
+        button.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 3L6 9L7.5 10.5L11 7V21H13V7L16.5 10.5L18 9L12 3Z" fill="currentColor"/></svg>`;
         button.title = 'Back to Top';
         return button;
     }
@@ -103,15 +127,10 @@ class ButtonManager {
             backgroundColor: settings.buttonColor,
             color: settings.textColor,
         });
-
-        this.plugin.logger.logDebug(
-            `Button styles updated: size=${settings.buttonSize}, position=${settings.rightPosition} from right, ${settings.bottomPosition} from bottom, colors=${settings.buttonColor}/${settings.textColor}`
-        );
     }
 
     applyCoreStyles(button, settings) {
         this.applyDynamicStyles(button, settings);
-
         Object.assign(button.style, {
             position: 'fixed',
             borderRadius: '50%',
@@ -130,7 +149,6 @@ class ButtonManager {
             lineHeight: '1',
             zIndex: '999',
         });
-
         const svg = button.querySelector('svg');
         if (svg) {
             svg.style.setProperty('width', '28px', 'important');
@@ -141,31 +159,38 @@ class ButtonManager {
     }
 
     addEventListeners(button, settings) {
-        button.addEventListener('mouseenter', () => {
-            button.style.transform = 'scale(1.1)';
-            button.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.2)';
-        });
-
-        button.addEventListener('mouseleave', () => {
-            button.style.transform = 'scale(1)';
-            button.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
-        });
+        button.addEventListener(
+            'mouseenter',
+            () => (button.style.transform = 'scale(1.1)')
+        );
+        button.addEventListener(
+            'mouseleave',
+            () => (button.style.transform = 'scale(1)')
+        );
 
         button.addEventListener('click', () => {
+            this.plugin.logger.logDebug(
+                'Button clicked. Setting isScrollingUp flag to true.'
+            );
+            this.isScrollingUp = true;
             this.scrollToTop();
+
+            setTimeout(() => {
+                this.plugin.logger.logDebug(
+                    'Scroll animation finished. Setting isScrollingUp flag to false.'
+                );
+                this.isScrollingUp = false;
+                this.createScrollChecker(button, settings)();
+            }, 500);
         });
 
         const checkScroll = this.createScrollChecker(button, settings);
-        this.addScrollListeners(checkScroll);
-
-        if (settings.showOnLoad) {
-            button.style.opacity = '0.8';
-            button.style.visibility = 'visible';
-        } else {
-            if (!this.plugin.isSettingsOpen) {
+        setTimeout(() => {
+            this.addScrollListeners(checkScroll);
+            if (!settings.showOnLoad) {
                 checkScroll();
             }
-        }
+        }, 100);
 
         this.plugin.registerEvent(
             this.plugin.app.workspace.on('layout-change', () => {
@@ -178,53 +203,73 @@ class ButtonManager {
     }
 
     scrollToTop() {
+        this.plugin.logger.logDebug('scrollToTop: function called.');
         const activeView =
             this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!activeView) {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            return;
-        }
-        let scrollElement =
-            activeView.contentEl.querySelector('.cm-scroller') ||
-            activeView.contentEl.querySelector('.markdown-preview-view');
+        const scrollElement = this._getScrollableElement(activeView);
+
+        this.plugin.logger.logDebug(
+            'scrollToTop: Final scroll element selected:',
+            scrollElement
+        );
+
         if (scrollElement) {
+            this.plugin.logger.logDebug(
+                `scrollToTop: Issuing scrollTo command to ${scrollElement.className}.`
+            );
             scrollElement.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // Add the failsafe timeout for all platforms.
+            setTimeout(() => {
+                this.plugin.logger.logTrace(
+                    'scrollToTop: Failsafe scrollTop=0 executing.'
+                );
+                scrollElement.scrollTop = 0;
+            }, 50);
         }
     }
 
     createScrollChecker(button, settings) {
         return () => {
+            if (this.isScrollingUp) {
+                this.plugin.logger.logTrace(
+                    'checkScroll: isScrollingUp is true, skipping check.'
+                );
+                return;
+            }
+
             const activeView =
                 this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-            if (activeView) {
-                const scrollElement =
-                    activeView.contentEl.querySelector('.cm-scroller') ||
-                    activeView.contentEl.querySelector(
-                        '.markdown-preview-view'
-                    );
-                if (scrollElement) {
-                    const scrollTop = scrollElement.scrollTop;
-                    if (scrollTop > settings.scrollThreshold) {
-                        button.style.opacity = settings.buttonOpacity;
-                        button.style.visibility = 'visible';
-                    } else {
-                        button.style.opacity = '0';
-                        button.style.visibility = 'hidden';
-                    }
+            const scrollElement = this._getScrollableElement(activeView);
+
+            if (scrollElement) {
+                const scrollTop = scrollElement.scrollTop;
+                const shouldShow = scrollTop > settings.scrollThreshold;
+                this.plugin.logger.logTrace(
+                    `checkScroll: scrollTop=${scrollTop}, threshold=${settings.scrollThreshold}, shouldShow=${shouldShow}`
+                );
+
+                if (shouldShow) {
+                    button.style.opacity = '0.8';
+                    button.style.visibility = 'visible';
+                } else {
+                    button.style.opacity = '0';
+                    button.style.visibility = 'hidden';
                 }
             }
         };
     }
 
     addScrollListeners(checkScroll) {
+        this.plugin.logger.logTrace('addScrollListeners called.');
         const activeView =
             this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!activeView) return;
+        const scrollElement = this._getScrollableElement(activeView);
 
-        const scrollElement =
-            activeView.contentEl.querySelector('.cm-scroller') ||
-            activeView.contentEl.querySelector('.markdown-preview-view');
         if (scrollElement) {
+            this.plugin.logger.logDebug(
+                `Attaching scroll listener to: ${scrollElement.className}`
+            );
             scrollElement.addEventListener('scroll', checkScroll);
         }
     }
@@ -234,15 +279,9 @@ class ButtonManager {
         if (!this.plugin.app.isMobile) return;
 
         const navBar = document.querySelector('.mobile-navbar');
-        if (!navBar) {
-            this.plugin.logger.logWarn(
-                'Could not find .mobile-navbar to observe for visibility changes.'
-            );
-            return;
-        }
+        if (!navBar) return;
 
         const checkScroll = this.createScrollChecker(button, settings);
-
         const checkRealVisibility = () => {
             const rect = navBar.getBoundingClientRect();
             const checkX = rect.left + 20;
@@ -259,17 +298,15 @@ class ButtonManager {
                 checkScroll();
             }
         };
-
         const visibilityInterval = setInterval(checkRealVisibility, 500);
         this.plugin.register(() => clearInterval(visibilityInterval));
     }
 
     async getEffectiveSettings() {
         const isMobile = this.plugin.app.isMobile;
-        let effectiveSettings = {
+        let settings = {
             scrollThreshold: this.plugin.settings.scrollThreshold,
             showOnLoad: this.plugin.settings.showOnLoad,
-            buttonOpacity: '1',
         };
 
         if (isMobile) {
@@ -277,13 +314,10 @@ class ButtonManager {
                 await this.mobileUtils.getMobileThemeProperties();
             const mobileDetection =
                 await this.mobileUtils.detectMobileButtonPosition();
-
-            effectiveSettings = {
-                ...effectiveSettings,
+            Object.assign(settings, {
                 buttonSize:
                     mobileDetection?.size ??
                     this.plugin.settings.mobileButtonSize,
-                fontSize: this.plugin.settings.mobileFontSize,
                 bottomPosition:
                     mobileDetection?.bottom ??
                     this.plugin.settings.mobileBottomPosition,
@@ -297,19 +331,18 @@ class ButtonManager {
                     mobileColors?.textColor ??
                     this.plugin.settings.mobileTextColor,
                 buttonOpacity: mobileColors?.buttonOpacity ?? '1',
-            };
+            });
         } else {
-            effectiveSettings = {
-                ...effectiveSettings,
+            Object.assign(settings, {
                 buttonSize: this.plugin.settings.buttonSize,
-                fontSize: this.plugin.settings.fontSize,
                 bottomPosition: this.plugin.settings.bottomPosition,
                 rightPosition: this.plugin.settings.rightPosition,
                 buttonColor: this.plugin.settings.buttonColor,
                 textColor: this.plugin.settings.textColor,
-            };
+                buttonOpacity: '1',
+            });
         }
-        return effectiveSettings;
+        return settings;
     }
 
     getDebugInfo() {
